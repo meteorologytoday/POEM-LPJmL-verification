@@ -1,5 +1,8 @@
 #!/bin/bash
 
+echo "This program converts all binary files in a given LPJmL output directory"
+echo "to netcdf with LPJmL tool bin2cdf."
+
 if [ "$LPJROOT" = "" ]; then
     echo "Error: LPJROOT is empty."
     exit 1;
