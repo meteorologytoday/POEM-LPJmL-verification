@@ -2,9 +2,17 @@ from pathlib import Path
 import xarray as xr
 import numpy as np
 
+def get_saturated_vapor_pressure(temperature_in_degC):
+    nonnegative_temperature = np.where(temperature_in_degC > 0, temperature_in_degC, 0)
+    return 6.112 * np.exp( (17.67 * nonnegative_temperature) / (nonnegative_temperature + 243.5));
+
+def get_saturated_specific_humidity(temperature_in_degC):
+    es = get_saturated_vapor_pressure(temperature_in_degC)
+    return 0.622 * es / (1013.0 - es)
+
 freezing_point = 273.15 # Kelvin
 
-root = Path("/home/tienyiao/tienyiao_poem/projects/POEM_playground/add_flux_q_forcing")
+root = Path("./data")
 output_dir = Path("figures")
 
 output_dir.mkdir(exist_ok=True, parents=True)
@@ -20,13 +28,19 @@ data_directories = {
 control_casename = "control"
 
 plotting_variables = [
-#    ("atm", "t_ref"),
+#    ("atm", "t_ref", 1.0, "K"),
+#    ("atm", "t_surf", 1.0, "K"),
+#    ("lpjml", "soil_surf_temp", 1.0, "degC"),
 #    ("atm", "q_ref"),
 #    ("atm", "sphum_surf"),
-#    ("atm", "wind"),
-    ("flx", "evap", 86400*30, "mm/month"),
-    ("flxlnd", "evap_land", 86400*30, "mm/month"),
+    ("atm", "wind", 1.0, "m/s"),
+
+#    ("flx", "evap", 86400*30, "mm/month"),
+#    ("flxlnd", "evap_land", 86400*30, "mm/month"),
     ("lpjml", "evap1", 86400*30, "mm/month"),
+    ("estimated", "evap", 86400*30, "mm/month"),
+    ("estimated", "ref_wind", 1.0, "m/s"),
+    ("lpjml", "mswc1", 1, "scalar"),
 #    ("lpjml", "mgpp"),
 #    ("lpjml", "vegc"),
 ]
@@ -37,8 +51,19 @@ skip_years = 10
 #lat_rng = [-2, 12]
 #lon_rng = [360-82, 360-46]
 
-lat_rng = [-16, -2]
-lon_rng = [360-70, 360-50]
+# South Amazon, all on land
+#lat_rng = [-16, -2]
+#lon_rng = [360-70, 360-50]
+
+# A small box (3degx3deg)
+lat_rng = [-10, -7]
+lon_rng = [360-60, 360-57]
+
+# A small box (3degx3deg)
+lat_rng = [-3, -0]
+lon_rng = [360-60, 360-57]
+
+
 
 # load data
 for casename in casenames:
@@ -85,6 +110,7 @@ for casename in casenames:
                 "mgpp",
                 "vegc",
                 "fpc",
+                "soil_surf_temp",
             ]
         ], decode_times=False)
         ds_lpjml = ds_lpjml.where(
@@ -94,11 +120,31 @@ for casename in casenames:
         sum_fpc = ds_lpjml["fpc"].isel()
         print(ds_lpjml)
 
+        rho = 1.22
+        drag_coefficient = 1e-3
+        saturated_specific_humidity = get_saturated_specific_humidity(ds_lpjml["soil_surf_temp"].to_numpy())
+        _humidity_potential_estimated = saturated_specific_humidity - ds_atm["q_ref"].to_numpy()
+        _ref_wind_estimated = np.sqrt(ds_atm["u_ref"].to_numpy()**2 + ds_atm["v_ref"].to_numpy()**2)
+        _evap_estimated = 1.22 * drag_coefficient * _ref_wind_estimated * _humidity_potential_estimated * ds_lpjml["mswc1"].to_numpy()
+
+        evap_estimated = xr.zeros_like(ds_atm["wind"]).rename("evap").load()
+        evap_estimated.values[:] = _evap_estimated[:]
+
+        ref_wind_estimated = xr.zeros_like(ds_atm["wind"]).rename("ref_wind").load()
+        ref_wind_estimated.values[:] = _ref_wind_estimated[:]
+
+        print("==================")
+        print(evap_estimated)
+        ds_estimated = xr.merge([
+            evap_estimated,
+            ref_wind_estimated,
+        ])
         data[casename] = {
             'atm' : ds_atm,
             'flx' : ds_flx,
             'flxlnd' : ds_flxlnd,
             'lpjml' : ds_lpjml,
+            'estimated' : ds_estimated,
         }
 
     except Exception as e:
@@ -109,7 +155,7 @@ for casename in casenames:
 print("Data loaded")
 # plot time series
 import matplotlib as mplt
-mplt.use("Agg")
+#mplt.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.transforms import blended_transform_factory
 
@@ -126,7 +172,7 @@ for j, (component, varname, factor, unit) in enumerate(plotting_variables):
     for i, (case_name, _data) in enumerate(data.items()):
         da = _data[component][varname]
         timeseries = da.to_numpy() * factor
-        t = np.arange(len(timeseries))
+        t = np.arange(len(timeseries)) / 12
         print(t.shape)
         #if component == "lpjml" and varname[0] != "m": # annual
         #    t *= 12
@@ -139,7 +185,7 @@ fig.suptitle(f"Average range : longitude $ \\in [{lon_rng[0]:.1f}, {lon_rng[1]:.
 for _ax in ax_flattened:
     _ax.grid()
     _ax.legend()
-    _ax.set_xlabel("Month")
+    _ax.set_xlabel("Year")
 
 for extension in ["png", "svg"]:
     output_file = output_dir / f"atm_lnd_diagnostic.{extension}"
