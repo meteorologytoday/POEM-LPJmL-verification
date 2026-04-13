@@ -17,11 +17,12 @@ output_dir = Path("figures")
 
 output_dir.mkdir(exist_ok=True, parents=True)
 casenames = [
-    "control",
+#    "control",
+    "depl_all_prop_depl_wateruse",
 ]
 
 data_directories = {
-    casename : root / f"{casename}/history" 
+    casename : root / f"{casename}" 
     for casename in casenames
 }
 
@@ -70,8 +71,8 @@ for casename in casenames:
     
     try:    
 
-        data_directory = data_directories[casename]
-        lpjml_data_directory = data_directory / "output_20220101_converted" 
+        data_directory = data_directories[casename] / "history"
+        lpjml_data_directory = data_directories[casename] / "lpjml_output_converted" 
 
         path_str = str(data_directory / "*.atmos_month.nc")
 
@@ -82,7 +83,8 @@ for casename in casenames:
             & (ds_atm.coords["lon"] > lon_rng[0]) & (ds_atm.coords["lon"] < lon_rng[1])
         ).weighted(np.cos(ds_atm.coords["lat"]*np.pi/180)).mean(dim=["lat", "lon"])
         print(ds_atm)
- 
+
+        """ 
         path_str = str(data_directory / "*.flux_month.nc")
         print(f"Loading: {path_str:s}")
         ds_flx = xr.open_mfdataset(path_str, decode_times=False)
@@ -100,7 +102,8 @@ for casename in casenames:
             & (ds_flxlnd.coords["lon"] > lon_rng[0]) & (ds_flxlnd.coords["lon"] < lon_rng[1])
         ).weighted(np.cos(ds_flxlnd.coords["lat"]*np.pi/180)).mean(dim=["lat", "lon"], skipna=True)
         print(ds_flxlnd)
-        
+        """
+
         ds_lpjml = xr.open_mfdataset([
             lpjml_data_directory / f"{varname}.nc"
             for varname in [
@@ -141,8 +144,8 @@ for casename in casenames:
         ])
         data[casename] = {
             'atm' : ds_atm,
-            'flx' : ds_flx,
-            'flxlnd' : ds_flxlnd,
+#            'flx' : ds_flx,
+#            'flxlnd' : ds_flxlnd,
             'lpjml' : ds_lpjml,
             'estimated' : ds_estimated,
         }
