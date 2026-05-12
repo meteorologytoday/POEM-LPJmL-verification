@@ -57,7 +57,7 @@ plotting_variables = [
     ("lpjml", "evap1", 86400*30, "mm/month"),
 #    ("estimated", "evap", 86400*30, "mm/month"),
     ("lpjml", "mswc1", 1, "scalar"),
-    ("lpjml", "mswc2", 1, "scalar"),
+    #("lpjml", "mswc2", 1, "scalar"),
 #    ("estimated", "humidity_potential", 1e3, "g/kg"),
 #    ("atm", "sphum_surf", 1e3, "g/kg"),
 #    ("estimated", "surface_saturated_specific_humidity", 1e3, "g/kg"),
@@ -203,6 +203,37 @@ for j, (component, varname, factor, unit) in enumerate(plotting_variables):
     for i, (case_name, _data) in enumerate(data.items()):
         da = _data[component][varname].to_numpy() * factor
 
+        if i == 0:
+            print("PLOTTING ERA5?")
+            da_benchmark = None
+            if varname == "mprec":
+                da_benchmark = ds_era5["tp"].to_numpy() * 30*1000
+            elif varname == "ref_wind":
+                da_benchmark = ds_era5["si10"].to_numpy()
+            elif varname == "soil_surf_temp":
+                da_benchmark = ds_era5["stl1"].to_numpy() - 273.15
+            elif varname in ["evap1", "evap"]:
+                da_benchmark = - ds_era5["e"].to_numpy() * 30*1000
+            elif varname == "mswc1":
+                da_benchmark = ds_era5["swvl1"].to_numpy()
+            elif varname == "mswc2":
+                da_benchmark = ds_era5["swvl2"].to_numpy()
+            elif varname == "mswc3":
+                da_benchmark = ds_era5["swvl3"].to_numpy()
+            elif varname == "mswc4":
+                da_benchmark = ds_era5["swvl4"].to_numpy()
+
+            if da_benchmark is not None:
+                print("PLOTTING ERA5!!!!!!!!!!!!!!!!!")
+                _ax.errorbar(x=np.arange(1, 13),
+                         y=da_benchmark.mean(axis=0), 
+                         yerr=da_benchmark.std(axis=0), 
+                         fmt='--o',          # Line with circular markers
+                         capsize=5,         # Adds horizontal 'caps' to the error bars
+                         color="red",
+                         label="era5",
+                )
+
         # Plot case data
         _ax.errorbar(x=np.arange(1, 13),
                  y=da.mean(axis=0), 
@@ -213,36 +244,6 @@ for j, (component, varname, factor, unit) in enumerate(plotting_variables):
                  label=case_name,
         )
  
-        if i == 0:
-            print("PLOTTING ERA5?")
-            da = None
-            if varname == "mprec":
-                da = ds_era5["tp"].to_numpy() * 30*1000
-            elif varname == "ref_wind":
-                da = ds_era5["si10"].to_numpy()
-            elif varname == "soil_surf_temp":
-                da = ds_era5["stl1"].to_numpy() - 273.15
-            elif varname in ["evap1", "evap"]:
-                da = - ds_era5["e"].to_numpy() * 30*1000
-            elif varname == "mswc1":
-                da = ds_era5["swvl1"].to_numpy()
-            elif varname == "mswc2":
-                da = ds_era5["swvl2"].to_numpy()
-            elif varname == "mswc3":
-                da = ds_era5["swvl3"].to_numpy()
-            elif varname == "mswc4":
-                da = ds_era5["swvl4"].to_numpy()
-
-            if da is not None:
-                print("PLOTTING ERA5!!!!!!!!!!!!!!!!!")
-                _ax.errorbar(x=np.arange(1, 13),
-                         y=da.mean(axis=0), 
-                         yerr=da.std(axis=0), 
-                         fmt='--o',          # Line with circular markers
-                         capsize=5,         # Adds horizontal 'caps' to the error bars
-                         color="red",
-                         label="era5",
-                )
    
         if i == 0:
             _ax.set_ylabel(f"[{unit:s}]")
