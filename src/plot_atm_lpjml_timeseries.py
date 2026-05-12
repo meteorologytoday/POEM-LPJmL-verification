@@ -17,8 +17,8 @@ output_dir = Path("figures")
 
 output_dir.mkdir(exist_ok=True, parents=True)
 casenames = [
-#    "control",
-    "depl_all_prop_depl_wateruse",
+    "control",
+#    "depl_all_prop_depl_wateruse_0017110101",
 ]
 
 data_directories = {
@@ -26,6 +26,7 @@ data_directories = {
     for casename in casenames
 }
 
+skip_time = 12*0
 control_casename = "control"
 
 plotting_variables = [
@@ -34,21 +35,28 @@ plotting_variables = [
 #    ("lpjml", "soil_surf_temp", 1.0, "degC"),
 #    ("atm", "q_ref"),
 #    ("atm", "sphum_surf"),
-    ("atm", "wind", 1.0, "m/s"),
+#    ("atm", "wind", 1.0, "m/s"),
 
 #    ("flx", "evap", 86400*30, "mm/month"),
 #    ("flxlnd", "evap_land", 86400*30, "mm/month"),
+#    ("lpjml", "mprec", 1.0, "mm/month"),
     ("lpjml", "evap1", 86400*30, "mm/month"),
-    ("estimated", "evap", 86400*30, "mm/month"),
-    ("estimated", "ref_wind", 1.0, "m/s"),
-    ("lpjml", "mswc1", 1, "scalar"),
+#    ("estimated", "evap", 86400*30, "mm/month"),
+#    ("estimated", "ref_wind", 1.0, "m/s"),
+#    ("lpjml", "mswc1", 1, "scalar"),
+#    ("estimated", "humidity_potential", 1e3, "g/kg"),
+    ("atm", "sphum_surf", 1e3, "g/kg"),
+#    ("estimated", "surface_saturated_specific_humidity", 1e3, "g/kg"),
+    ("lpjml", "soil_surf_temp", 1.0, "degC"),
+    ("lpjml", "mq_ca", 1e3, "g/kg"),
+
+
 #    ("lpjml", "mgpp"),
 #    ("lpjml", "vegc"),
 ]
 
 data = dict()
 
-skip_years = 10
 #lat_rng = [-2, 12]
 #lon_rng = [360-82, 360-46]
 
@@ -61,8 +69,8 @@ lat_rng = [-10, -7]
 lon_rng = [360-60, 360-57]
 
 # A small box (3degx3deg)
-lat_rng = [-3, -0]
-lon_rng = [360-60, 360-57]
+#lat_rng = [-3, -0]
+#lon_rng = [360-60, 360-57]
 
 
 
@@ -72,7 +80,7 @@ for casename in casenames:
     try:    
 
         data_directory = data_directories[casename] / "history"
-        lpjml_data_directory = data_directories[casename] / "lpjml_output_converted" 
+        lpjml_data_directory = data_directories[casename] / "lpjml_output" 
 
         path_str = str(data_directory / "*.atmos_month.nc")
 
@@ -107,6 +115,7 @@ for casename in casenames:
         ds_lpjml = xr.open_mfdataset([
             lpjml_data_directory / f"{varname}.nc"
             for varname in [
+                "mprec",
                 "evap1",
                 "mswc1",
                 "mswc2",
@@ -114,6 +123,7 @@ for casename in casenames:
                 "vegc",
                 "fpc",
                 "soil_surf_temp",
+                "mq_ca",
             ]
         ], decode_times=False)
         ds_lpjml = ds_lpjml.where(
@@ -130,6 +140,13 @@ for casename in casenames:
         _ref_wind_estimated = np.sqrt(ds_atm["u_ref"].to_numpy()**2 + ds_atm["v_ref"].to_numpy()**2)
         _evap_estimated = 1.22 * drag_coefficient * _ref_wind_estimated * _humidity_potential_estimated * ds_lpjml["mswc1"].to_numpy()
 
+        surface_saturated_specific_humidity = xr.zeros_like(ds_atm["wind"]).rename("surface_saturated_specific_humidity").load()
+        surface_saturated_specific_humidity.values[:] = saturated_specific_humidity
+        
+        humidity_potential_estimated = xr.zeros_like(ds_atm["wind"]).rename("humidity_potential").load()
+        humidity_potential_estimated.values[:] = _humidity_potential_estimated
+
+
         evap_estimated = xr.zeros_like(ds_atm["wind"]).rename("evap").load()
         evap_estimated.values[:] = _evap_estimated[:]
 
@@ -141,13 +158,15 @@ for casename in casenames:
         ds_estimated = xr.merge([
             evap_estimated,
             ref_wind_estimated,
+            surface_saturated_specific_humidity,
+            humidity_potential_estimated,
         ])
         data[casename] = {
-            'atm' : ds_atm,
+            'atm' : ds_atm.isel(time=slice(skip_time, None, None)),
 #            'flx' : ds_flx,
 #            'flxlnd' : ds_flxlnd,
-            'lpjml' : ds_lpjml,
-            'estimated' : ds_estimated,
+            'lpjml' : ds_lpjml.isel(time=slice(skip_time, None, None)),
+            'estimated' : ds_estimated.isel(time=slice(skip_time, None, None)),
         }
 
     except Exception as e:
@@ -161,12 +180,12 @@ import matplotlib as mplt
 #mplt.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.transforms import blended_transform_factory
-
+from matplotlib.ticker import MultipleLocator
 from datetime import datetime
 
 colors = plt.colormaps["plasma"](np.linspace(0, 1, len(data.keys()) + 3))
 
-fig, ax = plt.subplots(len(plotting_variables), 1, sharex=True, figsize=(6, len(plotting_variables)*3), squeeze=False)
+fig, ax = plt.subplots(len(plotting_variables), 1, sharex=True, figsize=(20, len(plotting_variables)*3), squeeze=False)
 
 ax_flattened = ax.flatten()
 
@@ -175,7 +194,7 @@ for j, (component, varname, factor, unit) in enumerate(plotting_variables):
     for i, (case_name, _data) in enumerate(data.items()):
         da = _data[component][varname]
         timeseries = da.to_numpy() * factor
-        t = np.arange(len(timeseries)) / 12
+        t = (skip_time + np.arange(len(timeseries)) ) / 12
         print(t.shape)
         #if component == "lpjml" and varname[0] != "m": # annual
         #    t *= 12
@@ -186,6 +205,7 @@ for j, (component, varname, factor, unit) in enumerate(plotting_variables):
         
 fig.suptitle(f"Average range : longitude $ \\in [{lon_rng[0]:.1f}, {lon_rng[1]:.1f}] $, latitude $ \\in [{lat_rng[0]:.1f}, {lat_rng[1]:.1f}] $")
 for _ax in ax_flattened:
+    _ax.xaxis.set_major_locator(MultipleLocator(1))
     _ax.grid()
     _ax.legend()
     _ax.set_xlabel("Year")
