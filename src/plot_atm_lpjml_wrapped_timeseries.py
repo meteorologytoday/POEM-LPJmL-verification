@@ -23,13 +23,15 @@ parser.add_argument("--casenames", nargs="+", default=["articifial_wet_off", "ar
                     help="One or more POEM case names to plot (default: articifial_wet_off articifial_wet_on)")
 parser.add_argument("--label", type=str, default="",
                     help="Region label shown in the plot title (e.g. south_amazon_land)")
+parser.add_argument("--skip-months", type=int, default=120,
+                    help="Number of months to skip at the start of each simulation (default: 120 = 10 years)")
 args = parser.parse_args()
 
 lat_rng = [args.lat_min, args.lat_max]
 lon_rng = [args.lon_min % 360, args.lon_max % 360]
 
 root = Path("./data")
-output_dir = Path("figures")
+output_dir = Path("figures/timeseries")
 
 output_dir.mkdir(exist_ok=True, parents=True)
 casenames = args.casenames
@@ -39,7 +41,7 @@ data_directories = {
     for casename in casenames
 }
 
-skip_time = 12*0
+skip_months = args.skip_months
 
 plotting_variables = [
 #    ("atm", "t_ref", 1.0, "K"),
@@ -167,15 +169,15 @@ for casename in casenames:
             humidity_potential_estimated,
         ])
         data[casename] = {
-            'atm' : ds_atm.isel(time=slice(skip_time, None, None)),
+            'atm' : ds_atm,
 #            'flx' : ds_flx,
 #            'flxlnd' : ds_flxlnd,
-            'lpjml' : ds_lpjml.isel(time=slice(skip_time, None, None)),
-            'estimated' : ds_estimated.isel(time=slice(skip_time, None, None)),
+            'lpjml' : ds_lpjml,
+            'estimated' : ds_estimated,
         }
 
         for component, ds in data[casename].items():
-            data[casename][component] = ds.isel(time=slice(skip_time, None, None)).coarsen(time=12).construct(time=("year", "month"))
+            data[casename][component] = ds.isel(time=slice(skip_months, None, None)).coarsen(time=12).construct(time=("year", "month"))
     except Exception as e:
         print(f"Error: Cannot load {casename:s}.")
         print(str(e))
@@ -246,8 +248,9 @@ for j, (component, varname, factor, unit) in enumerate(plotting_variables):
             _ax.set_ylabel(f"[{unit:s}]")
     _ax.set_title(f"({component}: {varname})")
         
+n_years = next(iter(next(iter(data.values())).values())).sizes["year"]
 label_prefix = f"{args.label} — " if args.label else ""
-fig.suptitle(f"{label_prefix}longitude $ \\in [{args.lon_min:.1f}, {args.lon_max:.1f}] $, latitude $ \\in [{args.lat_min:.1f}, {args.lat_max:.1f}] $")
+fig.suptitle(f"{label_prefix}longitude $ \\in [{args.lon_min:.1f}, {args.lon_max:.1f}] $, latitude $ \\in [{args.lat_min:.1f}, {args.lat_max:.1f}] $ ({n_years} years)")
 for _ax in ax_flattened:
     _ax.xaxis.set_major_locator(MultipleLocator(1))
     _ax.grid()
