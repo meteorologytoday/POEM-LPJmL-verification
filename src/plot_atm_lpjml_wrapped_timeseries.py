@@ -1,4 +1,5 @@
 from pathlib import Path
+import argparse
 import xarray as xr
 import numpy as np
 
@@ -12,14 +13,26 @@ def get_saturated_specific_humidity(temperature_in_degC):
 
 freezing_point = 273.15 # Kelvin
 
+parser = argparse.ArgumentParser(description="Plot monthly timeseries for a lat-lon box from POEM and ERA5.")
+parser.add_argument("--lat-min", type=float, default=2.0,   help="Southern boundary of the lat-lon box (default: 2.0)")
+parser.add_argument("--lat-max", type=float, default=5.0,   help="Northern boundary of the lat-lon box (default: 5.0)")
+parser.add_argument("--lon-min", type=float, default=-63.0, help="Western boundary in degrees, -180–360 (default: -63.0)")
+parser.add_argument("--lon-max", type=float, default=-60.0, help="Eastern boundary in degrees, -180–360 (default: -60.0)")
+parser.add_argument("--colormap", type=str, default="plasma", help="The colormap used to sample the line colors of plotted cases. (default: plasma)")
+parser.add_argument("--casenames", nargs="+", default=["articifial_wet_off", "articifial_wet_on"],
+                    help="One or more POEM case names to plot (default: articifial_wet_off articifial_wet_on)")
+parser.add_argument("--label", type=str, default="",
+                    help="Region label shown in the plot title (e.g. south_amazon_land)")
+args = parser.parse_args()
+
+lat_rng = [args.lat_min, args.lat_max]
+lon_rng = [args.lon_min % 360, args.lon_max % 360]
+
 root = Path("./data")
 output_dir = Path("figures")
 
 output_dir.mkdir(exist_ok=True, parents=True)
-casenames = [
-    "control",
-#    "depl_all_prop_depl_wateruse_0017110101",
-]
+casenames = args.casenames
 
 data_directories = {
     casename : root / f"{casename}" 
@@ -27,7 +40,6 @@ data_directories = {
 }
 
 skip_time = 12*0
-control_casename = "control"
 
 plotting_variables = [
 #    ("atm", "t_ref", 1.0, "K"),
@@ -41,7 +53,7 @@ plotting_variables = [
 #    ("flxlnd", "evap_land", 86400*30, "mm/month"),
     ("lpjml", "mprec", 1.0, "mm/month"),
     ("lpjml", "evap1", 86400*30, "mm/month"),
-    ("estimated", "evap", 86400*30, "mm/month"),
+#    ("estimated", "evap", 86400*30, "mm/month"),
     ("lpjml", "mswc1", 1, "scalar"),
     ("lpjml", "mswc2", 1, "scalar"),
 #    ("estimated", "humidity_potential", 1e3, "g/kg"),
@@ -58,22 +70,6 @@ plotting_variables = [
 
 data = dict()
 
-#lat_rng = [-2, 12]
-#lon_rng = [360-82, 360-46]
-
-# South Amazon, all on land
-#lat_rng = [-16, -2]
-#lon_rng = [360-70, 360-50]
-
-# A small box (3degx3deg)
-#lat_rng = [-10, -7]
-lat_rng = [2, 5]
-lon_rng = [360-63, 360-60]
-
-# A small box (3degx3deg)
-#lat_rng = [-3, -0]
-#lon_rng = [360-60, 360-57]
-
 # load era5
 
 try:    
@@ -82,7 +78,7 @@ try:
         "data/era5/data_stream-moda_stepType-avgad.nc",
         "data/era5/data_stream-moda_stepType-avgua.nc",
     ]
-    print(f"Loading: ", path_str)
+    print(f"Loading ERA5: {path_str}")
 
     # The times of these file shift due to different statistics
     # So, I drop these times so that the time will be stacked,
@@ -91,8 +87,6 @@ try:
         xr.open_dataset(_path).drop_vars("valid_time")
         for _path in path_str
     ])
-    
-    print(ds_era5)
 
     lat = ds_era5.coords["latitude"]
     lon = ds_era5.coords["longitude"] % 360
@@ -100,7 +94,6 @@ try:
           (lat > lat_rng[0]) & (lat < lat_rng[1])
         & (lon > lon_rng[0]) & (lon < lon_rng[1])
     ).weighted(np.cos(lat*np.pi/180)).mean(dim=["latitude", "longitude"])
-    print(ds_era5)
     ds_era5 = ds_era5.coarsen(valid_time=12).construct(valid_time=("year", "month"))
 
 except Exception as e:
@@ -116,7 +109,7 @@ for casename in casenames:
     try:    
 
         data_directory = data_directories[casename] / "history"
-        lpjml_data_directory = data_directories[casename] / "lpjml_output" 
+        lpjml_data_directory = data_directory / "lpjml_output" 
 
         path_str = str(data_directory / "*.atmos_month.nc")
 
@@ -126,7 +119,6 @@ for casename in casenames:
               (ds_atm.coords["lat"] > lat_rng[0]) & (ds_atm.coords["lat"] < lat_rng[1])
             & (ds_atm.coords["lon"] > lon_rng[0]) & (ds_atm.coords["lon"] < lon_rng[1])
         ).weighted(np.cos(ds_atm.coords["lat"]*np.pi/180)).mean(dim=["lat", "lon"])
-        print(ds_atm)
 
         ds_lpjml = xr.open_mfdataset([
             lpjml_data_directory / f"{varname}.nc"
@@ -147,7 +139,6 @@ for casename in casenames:
             & (ds_lpjml.coords["lon"] % 360 > lon_rng[0]) & (ds_lpjml.coords["lon"] % 360 < lon_rng[1])
         ).weighted(np.cos(ds_lpjml.coords["lat"]*np.pi/180)).mean(dim=["lat", "lon"], skipna=True)
         sum_fpc = ds_lpjml["fpc"].isel()
-        print(ds_lpjml)
 
         rho = 1.22
         drag_coefficient = 1e-3
@@ -169,8 +160,6 @@ for casename in casenames:
         ref_wind_estimated = xr.zeros_like(ds_atm["wind"]).rename("ref_wind").load()
         ref_wind_estimated.values[:] = _ref_wind_estimated[:]
 
-        print("==================")
-        print(evap_estimated)
         ds_estimated = xr.merge([
             evap_estimated,
             ref_wind_estimated,
@@ -195,13 +184,13 @@ for casename in casenames:
 print("Data loaded")
 # plot time series
 import matplotlib as mplt
-#mplt.use("Agg")
+mplt.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.transforms import blended_transform_factory
 from matplotlib.ticker import MultipleLocator
 from datetime import datetime
 
-colors = plt.colormaps["plasma"](np.linspace(0, 1, len(data.keys()) + 3))
+colors = plt.colormaps[args.colormap](np.linspace(0, 1, len(data.keys()) + 3))
 
 fig, ax = plt.subplots(len(plotting_variables), 1, sharex=True, figsize=(10, len(plotting_variables)*3), squeeze=False)
 
@@ -211,6 +200,8 @@ for j, (component, varname, factor, unit) in enumerate(plotting_variables):
     _ax = ax_flattened[j]
     for i, (case_name, _data) in enumerate(data.items()):
         da = _data[component][varname].to_numpy() * factor
+
+        # Plot case data
         _ax.errorbar(x=np.arange(1, 13),
                  y=da.mean(axis=0), 
                  yerr=da.std(axis=0), 
@@ -219,9 +210,9 @@ for j, (component, varname, factor, unit) in enumerate(plotting_variables):
                  color=colors[i],
                  label=case_name,
         )
-
+ 
         if i == 0:
-
+            print("PLOTTING ERA5?")
             da = None
             if varname == "mprec":
                 da = ds_era5["tp"].to_numpy() * 30*1000
@@ -240,11 +231,8 @@ for j, (component, varname, factor, unit) in enumerate(plotting_variables):
             elif varname == "mswc4":
                 da = ds_era5["swvl4"].to_numpy()
 
-
-
-
-
             if da is not None:
+                print("PLOTTING ERA5!!!!!!!!!!!!!!!!!")
                 _ax.errorbar(x=np.arange(1, 13),
                          y=da.mean(axis=0), 
                          yerr=da.std(axis=0), 
@@ -253,12 +241,13 @@ for j, (component, varname, factor, unit) in enumerate(plotting_variables):
                          color="red",
                          label="era5",
                 )
-     
+   
         if i == 0:
             _ax.set_ylabel(f"[{unit:s}]")
     _ax.set_title(f"({component}: {varname})")
         
-fig.suptitle(f"Average range : longitude $ \\in [{lon_rng[0]:.1f}, {lon_rng[1]:.1f}] $, latitude $ \\in [{lat_rng[0]:.1f}, {lat_rng[1]:.1f}] $")
+label_prefix = f"{args.label} — " if args.label else ""
+fig.suptitle(f"{label_prefix}longitude $ \\in [{args.lon_min:.1f}, {args.lon_max:.1f}] $, latitude $ \\in [{args.lat_min:.1f}, {args.lat_max:.1f}] $")
 for _ax in ax_flattened:
     _ax.xaxis.set_major_locator(MultipleLocator(1))
     _ax.grid()
@@ -266,7 +255,7 @@ for _ax in ax_flattened:
     _ax.set_xlabel("Year")
 
 for extension in ["png", "svg"]:
-    output_file = output_dir / f"atm_lnd_diagnostic_wrapped.{extension}"
+    output_file = output_dir / f"atm_lnd_diagnostic_wrapped_lat{args.lat_min:.1f}to{args.lat_max:.1f}_lon{args.lon_min:.1f}to{args.lon_max:.1f}.{extension}"
     print(f"Write to file: {str(output_file)}")
     fig.savefig(output_file, dpi=200)
 
